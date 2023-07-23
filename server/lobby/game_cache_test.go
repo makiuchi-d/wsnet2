@@ -3,26 +3,13 @@ package lobby
 import (
 	"testing"
 	"time"
+
+	"wsnet2/testdb"
 )
 
 func TestGameCache(t *testing.T) {
-	if lobbyDB == nil {
-		t.Skip("require database")
-	}
-
-	lobbyDB.MustExec("DROP TABLE IF EXISTS `game_server`")
-	// TODO: 10-schema.sql から指定したテーブルの定義を読み込んで実行するような仕組みが欲しい
-	lobbyDB.MustExec(
-		"CREATE TABLE `game_server` (\n" +
-			"  `id`          INTEGER UNSIGNED NOT NULL PRIMARY KEY AUTO_INCREMENT,\n" +
-			"  `hostname`    VARCHAR(191) NOT NULL,\n" +
-			"  `public_name` VARCHAR(191) NOT NULL,\n" +
-			"  `grpc_port`   INTEGER NOT NULL,\n" +
-			"  `ws_port`     INTEGER NOT NULL,\n" +
-			"  `status`      TINYINT NOT NULL,\n" +
-			"  `heartbeat`   BIGINT,\n" +
-			"  UNIQUE KEY `idx_hostname` (`hostname`)\n" +
-			") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4")
+	lobbyDB := testdb.New("test_game_cache")
+	lobbyDB.MustExec(testdb.GetCreateSql("game_server", "../sql/10-schema.sql"))
 
 	now := time.Now()
 	nowUnix := now.Unix()
