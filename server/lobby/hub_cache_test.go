@@ -9,7 +9,7 @@ import (
 
 func TestHubCache(t *testing.T) {
 	lobbyDB := testdb.New("test_hub_cache")
-	lobbyDB.MustExec(testdb.GetCreateSql("hub_server", "../sql/10-schema.sql"))
+	lobbyDB.MustExec(testdb.ExtractCreateSql("hub_server", "../sql/10-schema.sql"))
 
 	now := time.Now()
 	nowUnix := now.Unix()

@@ -19,24 +19,27 @@ func init() {
 
 type factory struct{}
 
-func (f factory) Resolve(name string, options *driver.Options) (string, sqle.DatabaseProvider, error) {
+func (f factory) Resolve(dbName string, options *driver.Options) (string, sqle.DatabaseProvider, error) {
+	memdb := memory.NewDatabase(dbName)
+	memdb.EnablePrimaryKeyIndexes()
 	provider := memory.NewDBProvider(
-		memory.NewDatabase(name),
+		memdb,
 		information_schema.NewInformationSchemaDatabase(),
 	)
-	return name, provider, nil
+	return dbName, provider, nil
 }
 
 func New(dbName string) *sqlx.DB {
-	db, err := sqlx.Open("sqle", dbName)
+	db, err := sql.Open("sqle", dbName)
 	if err != nil {
 		panic(err)
 	}
-	db.MustExec(fmt.Sprintf("USE %s", dbName))
-	return db
+	dbx := sqlx.NewDb(db, "mysql")
+	dbx.MustExec(fmt.Sprintf("USE %s", dbName))
+	return dbx
 }
 
-func GetCreateSql(table, file string) string {
+func ExtractCreateSql(table, file string) string {
 	s, err := os.ReadFile(file)
 	if err != nil {
 		panic(err)

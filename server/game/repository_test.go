@@ -2,17 +2,13 @@ package game
 
 import (
 	"context"
-	"errors"
 	"regexp"
 	"testing"
 	"time"
 
-	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/jmoiron/sqlx"
-	"golang.org/x/xerrors"
-
 	"wsnet2/config"
 	"wsnet2/pb"
+	"wsnet2/testdb"
 )
 
 func TestQueries(t *testing.T) {
@@ -37,17 +33,10 @@ func TestQueries(t *testing.T) {
 	}
 }
 
-func newDbMock(t *testing.T) (*sqlx.DB, sqlmock.Sqlmock) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("sqlmock error: %+v", err)
-	}
-	return sqlx.NewDb(db, "mysql"), mock
-}
-
 func TestNewRoomInfo(t *testing.T) {
 	ctx := context.Background()
-	db, mock := newDbMock(t)
+	db := testdb.New("test_new_roominfo")
+	db.MustExec(testdb.ExtractCreateSql("room", "../sql/10-schema.sql"))
 	retryCount := 3
 	maxNumber := 999
 
@@ -59,8 +48,6 @@ func TestNewRoomInfo(t *testing.T) {
 		},
 		db: db,
 	}
-
-	dupErr := xerrors.Errorf("Duplicate entry")
 
 	op := &pb.RoomOption{
 		Visible:        true,
@@ -80,39 +67,51 @@ func TestNewRoomInfo(t *testing.T) {
 	num1 := randsrc.Int31n(int32(maxNumber)) + 1
 	id2 := RandomHex(lenId)
 	num2 := randsrc.Int31n(int32(maxNumber)) + 1
+	id3 := RandomHex(lenId)
+	num3 := randsrc.Int31n(int32(maxNumber)) + 1
+	id4 := RandomHex(lenId)
+	num4 := randsrc.Int31n(int32(maxNumber)) + 1
 
-	insQuery := "INSERT INTO room "
-	mock.ExpectBegin()
-	mock.ExpectExec(insQuery).WillReturnError(dupErr)
-	mock.ExpectExec(insQuery).WillReturnResult(sqlmock.NewResult(1, 1))
+	failed := true
+	defer func() {
+		if failed {
+			t.Logf("rooms:\n"+
+				"room1: %v, %v\n"+
+				"room2: %v, %v\n"+
+				"room3: %v, %v\n"+
+				"room4: %v, %v\n",
+				id1, num1, id2, num2, id3, num3, id4, num4)
+		}
+	}()
+
+	// 1回目, 3回目のid/numをinsertしておく
+	// seedリセット後のnewRoomInfoは2回目のid/numで作られる
+	// もう一度リセット後は3回連続失敗する
+	insertQuery := "INSERT INTO room" +
+		" (id, app_id, host_id, visible, joinable, watchable, number, search_group, max_players, players, watchers, created)" +
+		" values (?, 'testing', 1, false, false, false, ?, 1, 1, 1, 0, now())"
+	db.MustExec(insertQuery, id1, num1)
+	db.MustExec(insertQuery, id3, num3)
 
 	randsrc.Seed(seed)
 	tx, _ := db.Beginx()
 	ri, err := repo.newRoomInfo(ctx, tx, op)
 	if err != nil {
-		t.Fatalf("NewRoomInfo fail: %v", err)
+		t.Fatalf("NewRoomInfo fail: %+v", err)
 	}
 
-	if ri.Id == id1 || ri.Id != id2 {
-		t.Fatalf("ri.Id = %v, wants %v", ri.Id, id2)
+	if ri.Id != id2 {
+		t.Fatalf("unexpected Id: %v, wants %v", ri.Id, id2)
 	}
-	if ri.Number.Number == num1 || ri.Number.Number != num2 {
-		t.Fatalf("ri.Number = %v, wants %v", ri.Number.Number, num2)
-	}
-
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("there were unfulfilled expectations: %s", err)
+	if ri.Number.Number != num2 {
+		t.Fatalf("unexpected Number: %v, wants %v", ri.Number.Number, num2)
 	}
 
-	// リトライ回数オーバーでエラーになるはず
-	for i := 0; i < retryCount; i++ {
-		mock.ExpectExec(insQuery).WillReturnError(dupErr)
+	randsrc.Seed(seed)
+	ri, err = repo.newRoomInfo(ctx, tx, op)
+	if err == nil {
+		t.Fatalf("NewRoomInfo must be error: id=%v num=%v", ri.Id, ri.Number.Number)
 	}
-	_, err = repo.newRoomInfo(ctx, tx, op)
-	if !errors.Is(err, dupErr) {
-		t.Fatalf("NewRoomInfo error: %v wants %v", err, dupErr)
-	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("there were unfulfilled expectations: %s", err)
-	}
+
+	failed = false
 }
